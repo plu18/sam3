@@ -1,0 +1,5 @@
+Inference successful!
+Prompt: a red square
+Masks shape: torch.Size([0, 1, 512, 512])
+Boxes shape: torch.Size([0, 4])
+Scores shape: torch.Size([0])
