@@ -17,7 +17,7 @@
                 "ms-toolsai.jupyter-keymap",
                 "ms-toolsai.jupyter-renderers",
                 "njpwerner.autodocstring",
-                "charliermarsh.ruff",
+                "astral-sh.ruff",
                 "tamasfe.even-better-toml"
             ],
             "settings": {
@@ -26,7 +26,7 @@
                 "editor.formatOnSave": true,
                 "python.formatting.provider": "none",
                 "[python]": {
-                    "editor.defaultFormatter": "charliermarsh.ruff",
+                    "editor.defaultFormatter": "astral-sh.ruff",
                     "editor.codeActionsOnSave": {
                         "source.organizeImports": "explicit"
                     }

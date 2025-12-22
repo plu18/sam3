@@ -97,7 +97,7 @@ def main():
     processor = Sam3Processor(model)
 
     # 2. Load Image
-    image_path = "/workspaces/sctsam3/assets/images/truck.jpg"
+    image_path = "/workspaces/sctsam3/assets/images/test_image.jpg"
     if not os.path.exists(image_path):
         print(f"Image not found: {image_path}")
         return
@@ -109,7 +109,7 @@ def main():
     inference_state = processor.set_image(image)
 
     # 4. Run Inference with Text Prompts
-    prompts = ["truck", "wheel", "window", "door"]
+    prompts = ["person", "dog", "boy"]
 
     for prompt in prompts:
         print(f"Running inference for prompt: '{prompt}'")

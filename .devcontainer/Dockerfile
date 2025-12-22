@@ -31,8 +31,56 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 &
 # Note: Using the command from README
 RUN pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 
-# Install development tools
-RUN pip install black ufmt ruff usort isort flake8 mypy pytest jupyter
+# Install project dependencies
+RUN pip install \
+    # Core dependencies
+    "timm>=1.0.17" \
+    "numpy==1.26" \
+    tqdm \
+    "ftfy==6.1.1" \
+    regex \
+    "iopath>=0.1.10" \
+    typing_extensions \
+    huggingface_hub \
+    # Dev dependencies
+    pytest \
+    pytest-cov \
+    "black==24.2.0" \
+    "ufmt==2.8.0" \
+    "ruff-api==0.1.0" \
+    "usort==1.0.2" \
+    "gitpython==3.1.31" \
+    yt-dlp \
+    pandas \
+    opencv-python \
+    pycocotools \
+    numba \
+    python-rapidjson \
+    # Train dependencies
+    hydra-core \
+    submitit \
+    tensorboard \
+    zstandard \
+    scipy \
+    torchmetrics \
+    fvcore \
+    fairscale \
+    scikit-image \
+    scikit-learn \
+    # Notebook dependencies
+    matplotlib \
+    jupyter \
+    notebook \
+    ipywidgets \
+    ipycanvas \
+    ipympl \
+    decord \
+    einops \
+    # Tools
+    ruff \
+    isort \
+    flake8 \
+    mypy
 
 WORKDIR /workspace
 

@@ -151,5 +151,7 @@ Thumbs.db
 # BPE vocabulary files
 *.bpe
 *.vocab
+*.mp4
+my_experiments/
 
 *local.md
