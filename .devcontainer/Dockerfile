@@ -3,8 +3,12 @@ FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
+# Use Aliyun mirrors for apt
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --fix-missing \
     git \
     curl \
     wget \
@@ -17,11 +21,15 @@ RUN apt-get update && apt-get install -y \
 # Install Python 3.12
 RUN add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y python3.12 python3.12-dev && \
+    apt-get install -y --fix-missing python3.12 python3.12-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Install pip
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+
+# Use Aliyun mirrors for pip
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip config set global.trusted-host mirrors.aliyun.com
 
 # Set python3.12 as default python
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
