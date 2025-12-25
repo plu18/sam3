@@ -152,6 +152,7 @@ Thumbs.db
 *.bpe
 *.vocab
 *.mp4
-my_experiments/
+my_experiments/data**
+my_experiments/out**
 
 *local.md

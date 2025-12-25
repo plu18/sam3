@@ -1,0 +1,11 @@
+Benchmark Results - Sun Dec 21 11:53:09 UTC 2025
+Video: my_experiments/data/bedroom.mp4
+----------------------------------------------------------------
+| Config Name | Resize | Skip | Model Input | Vis? | FPS |
+|---|---|---|---|---|---|
+| Baseline | 640 | 0 | 512 | Yes | 0.24 |
+| No_Vis | 640 | 0 | 512 | No | 0.19 |
+| Small_Video | 480 | 0 | 512 | No | 0.25 |
+| Small_Model | 640 | 0 | 384 | No | 0.19 |
+| Skip_2 | 640 | 2 | 512 | No | 0.82 |
+| Fast_Combo | 480 | 2 | 384 | No | 0.85 |
