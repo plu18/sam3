@@ -1,7 +1,11 @@
 {
     "name": "SAM3 Dev Container",
     "build": {
-        "dockerfile": "Dockerfile"
+        "dockerfile": "Dockerfile",
+        "args": {
+            "BASE_IMAGE": "docker.m.daocloud.io/nvidia/cuda:12.6.0-devel-ubuntu22.04",
+            "REGION": "cn"
+        }
     },
     "runArgs": [
         "--gpus",

@@ -1,13 +1,16 @@
-# Use a mirror for the base image to avoid connection issues in China
-# FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
-FROM docker.m.daocloud.io/nvidia/cuda:12.6.0-devel-ubuntu22.04
+ARG BASE_IMAGE=nvidia/cuda:12.6.0-devel-ubuntu22.04
+FROM ${BASE_IMAGE}
+
+ARG REGION=us
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Use Tsinghua mirrors for apt (often more stable than Aliyun)
-RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list && \
-    sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
+# Configure APT mirrors based on region
+RUN if [ "$REGION" = "cn" ]; then \
+        sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list && \
+        sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list; \
+    fi
 
 # Install system dependencies
 # Retry installation once if it fails due to network issues
@@ -38,9 +41,11 @@ RUN add-apt-repository ppa:deadsnakes/ppa && \
 # Install pip
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
 
-# Use Tsinghua mirrors for pip
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
-    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+# Configure PIP mirrors based on region
+RUN if [ "$REGION" = "cn" ]; then \
+        pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+        pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn; \
+    fi
 
 # Set python3.12 as default python
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
@@ -53,6 +58,11 @@ RUN pip install torch==2.7.0 torchvision torchaudio --index-url https://download
 # Install project dependencies
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+# Install xtcocotools (requires cython and numpy, numpy is in requirements.txt)
+# Fixes: xtcocotools/_mask.c: No such file or directory
+RUN pip install cython && \
+    pip install git+https://github.com/jin-s13/xtcocoapi
 
 WORKDIR /workspace
 
