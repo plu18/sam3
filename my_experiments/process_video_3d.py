@@ -32,7 +32,77 @@ except ImportError as e:
 LIGHT_BLUE = (0.65098039, 0.74117647, 0.85882353)
 
 
-def process_single_video(video_path, output_dir, estimator, human_detector, args):
+def run_detection_only(video_path, detector, args):
+    """
+    Run detection pass on a single video and return list of boxes.
+    """
+    video_name = os.path.splitext(os.path.basename(video_path))[0]
+    print(f"Running detection pass for {video_name}...")
+
+    cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
+    if not cap.isOpened():
+        print(f"Error opening video file {video_path}")
+        return None
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # Resize logic
+    process_width = width
+    process_height = height
+    if args.resize_width > 0 and width > args.resize_width:
+        scale = args.resize_width / width
+        process_width = args.resize_width
+        process_height = int(height * scale)
+        
+        # Ensure even dimensions for video encoding compatibility
+        if process_width % 2 != 0: process_width -= 1
+        if process_height % 2 != 0: process_height -= 1
+
+    all_boxes = []
+    frame_idx = 0
+    pbar = tqdm(total=total_frames, desc=f"Detecting {video_name}")
+    
+    tracked_boxes = None
+    skip_interval = args.skip_frames
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if frame is None or frame.size == 0:
+            all_boxes.append(None)
+            frame_idx += 1
+            pbar.update(1)
+            continue
+
+        # Resize frame if needed
+        if args.resize_width > 0 and width > args.resize_width:
+            frame = cv2.resize(frame, (process_width, process_height))
+
+        should_detect = (frame_idx % (skip_interval + 1) == 0) or (tracked_boxes is None)
+
+        if should_detect:
+            try:
+                tracked_boxes = detector.run_human_detection(frame, bbox_thr=0.5)
+                if len(tracked_boxes) == 0:
+                    tracked_boxes = None
+            except Exception as e:
+                print(f"Detection failed at frame {frame_idx}: {e}")
+                tracked_boxes = None
+        
+        all_boxes.append(tracked_boxes)
+        frame_idx += 1
+        pbar.update(1)
+
+    cap.release()
+    pbar.close()
+    return all_boxes
+
+
+def process_single_video(video_path, output_dir, estimator, human_detector, args, precomputed_boxes=None):
     video_name = os.path.splitext(os.path.basename(video_path))[0]
     print(f"Processing {video_name}...")
 
@@ -49,6 +119,10 @@ def process_single_video(video_path, output_dir, estimator, human_detector, args
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0 or np.isnan(fps):
+        fps = 30.0
+        print(f"Warning: Invalid FPS detected. Defaulting to {fps} fps.")
+        
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     print(f"Processing video: {width}x{height} @ {fps}fps, {total_frames} frames")
@@ -60,6 +134,11 @@ def process_single_video(video_path, output_dir, estimator, human_detector, args
         scale = args.resize_width / width
         process_width = args.resize_width
         process_height = int(height * scale)
+        
+        # Ensure even dimensions for video encoding compatibility
+        if process_width % 2 != 0: process_width -= 1
+        if process_height % 2 != 0: process_height -= 1
+        
         print(f"Resizing frames to {process_width}x{process_height} for processing.")
 
     # 4. Setup Video Writers
@@ -97,18 +176,19 @@ def process_single_video(video_path, output_dir, estimator, human_detector, args
     # Optimization: Use inference mode.
     # Note: Autocast (AMP) is disabled because MHR model uses sparse operations
     # that are not implemented for BFloat16/Float16 on CUDA.
-    use_amp = False
-    amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    # UPDATE: Even with fixes, MHR sparse ops fail in BFloat16. We must disable global autocast
+    # and only cast the backbone manually if needed, or rely on the model.to(dtype) we did earlier.
+    # Since we already did model.to(bfloat16), we should NOT use autocast context manager
+    # because it might force MHR (which is likely kept in float32 inside TorchScript) to try to run in bf16.
+    
     print(
-        f"Inference optimization: torch.inference_mode() enabled. Autocast disabled (incompatible with MHR sparse ops)."
+        f"Inference optimization: torch.inference_mode() enabled. Autocast DISABLED to avoid MHR sparse errors."
     )
 
     start_time = time.time()
     processed_frames_count = 0
 
-    with torch.inference_mode(), torch.autocast(
-        device_type="cuda", dtype=amp_dtype, enabled=use_amp
-    ):
+    with torch.inference_mode():
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -129,23 +209,27 @@ def process_single_video(video_path, output_dir, estimator, human_detector, args
                 frame = cv2.resize(frame, (process_width, process_height))
 
             # --- Detection Logic ---
-            should_detect = (frame_idx % (skip_interval + 1) == 0) or (
-                tracked_boxes is None
-            )
-
-            if should_detect and human_detector is not None:
-                try:
-                    # bbox_thr=0.5 is standard
-                    # Pass image_size to avoid upscaling in detector
-                    det_size = min(process_height, process_width)
-                    tracked_boxes = human_detector.run_human_detection(
-                        frame, bbox_thr=0.5, image_size=det_size
-                    )
-                    if len(tracked_boxes) == 0:
-                        tracked_boxes = None  # No humans found
-                except Exception as e:
-                    print(f"Detection failed at frame {frame_idx}: {e}")
+            if precomputed_boxes is not None:
+                if frame_idx < len(precomputed_boxes):
+                    tracked_boxes = precomputed_boxes[frame_idx]
+                else:
                     tracked_boxes = None
+            else:
+                should_detect = (frame_idx % (skip_interval + 1) == 0) or (
+                    tracked_boxes is None
+                )
+
+                if should_detect and human_detector is not None:
+                    try:
+                        # bbox_thr=0.5 is standard
+                        tracked_boxes = human_detector.run_human_detection(
+                            frame, bbox_thr=0.5
+                        )
+                        if len(tracked_boxes) == 0:
+                            tracked_boxes = None  # No humans found
+                    except Exception as e:
+                        print(f"Detection failed at frame {frame_idx}: {e}")
+                        tracked_boxes = None
 
             # --- Inference Logic ---
             # Convert to RGB for SAM 3D Body Estimator
@@ -272,6 +356,14 @@ def main(args):
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
         print("Inference optimization: torch.backends.cudnn.benchmark = True")
+        
+        # Enable FP16/BFloat16 inference for speedup
+        # DINOv3 supports bfloat16 well
+        try:
+            torch.set_float32_matmul_precision('high')
+            print("Inference optimization: torch.set_float32_matmul_precision('high')")
+        except AttributeError:
+            pass
 
     # Check if checkpoints exist
     if not os.path.exists(args.checkpoint_path):
@@ -294,28 +386,37 @@ def main(args):
 
     # Initialize Detector (using ViTDet by default as in demo.py)
     human_detector = None
+    
+    # If low_memory is set, we handle detector lifecycle differently
+    if not args.low_memory:
+        det_path = args.detector_path
+        det_name = "vitdet"
+        
+        # Check if user wants YOLO
+        if det_path and "yolo" in det_path.lower():
+            det_name = "yolo"
+        
+        if det_path and det_path.lower() == "none":
+            print("Skipping detector initialization.")
+        else:
+            # If path is the broken default and doesn't exist, use empty string to trigger download
+            if (
+                det_name == "vitdet" and
+                det_path == "checkpoints/sam-3d-body-dinov3/assets/vitdet_h.py"
+                and not os.path.exists(det_path)
+            ):
+                print(
+                    "Default detector path not found. Using auto-download for ViTDet weights."
+                )
+                det_path = ""
 
-    det_path = args.detector_path
-    if det_path and det_path.lower() == "none":
-        print("Skipping detector initialization.")
-    else:
-        # If path is the broken default and doesn't exist, use empty string to trigger download
-        if (
-            det_path == "checkpoints/sam-3d-body-dinov3/assets/vitdet_h.py"
-            and not os.path.exists(det_path)
-        ):
-            print(
-                "Default detector path not found. Using auto-download for ViTDet weights."
-            )
-            det_path = ""
-
-        try:
-            human_detector = HumanDetector(name="vitdet", device=device, path=det_path)
-        except Exception as e:
-            print(f"Failed to initialize detector: {e}")
-            print(
-                "Proceeding without detector (inference will fail if no boxes provided)."
-            )
+            try:
+                human_detector = HumanDetector(name=det_name, device=device, path=det_path)
+            except Exception as e:
+                print(f"Failed to initialize detector: {e}")
+                print(
+                    "Proceeding without detector (inference will fail if no boxes provided)."
+                )
 
     # Pass human_detector=None to estimator so we can control detection manually
     estimator = SAM3DBodyEstimator(
@@ -347,10 +448,73 @@ def main(args):
         return
 
     # 4. Process Loop
+    
+    # Low Memory Mode: Run detection first for all videos, then estimation
+    video_boxes_map = {}
+    
+    if args.low_memory:
+        print("Running in LOW MEMORY mode. Step 1: Detection Pass")
+        # Unload SAM model to free memory for detector
+        del model
+        del estimator
+        torch.cuda.empty_cache()
+        
+        # Load Detector
+        det_path = args.detector_path
+        det_name = "vitdet"
+        if det_path and "yolo" in det_path.lower():
+            det_name = "yolo"
+
+        if det_path and det_path.lower() == "none":
+             print("Skipping detector initialization (low memory).")
+             human_detector = None
+        else:
+            if (
+                det_name == "vitdet" and
+                det_path == "checkpoints/sam-3d-body-dinov3/assets/vitdet_h.py"
+                and not os.path.exists(det_path)
+            ):
+                det_path = ""
+            try:
+                human_detector = HumanDetector(name=det_name, device=device, path=det_path)
+            except Exception as e:
+                print(f"Failed to initialize detector: {e}")
+                human_detector = None
+        
+        if human_detector:
+            for video_path in video_paths:
+                boxes = run_detection_only(video_path, human_detector, args)
+                video_boxes_map[video_path] = boxes
+            
+            # Unload Detector
+            del human_detector
+            torch.cuda.empty_cache()
+            print("Detection pass complete. Detector unloaded.")
+        
+        # Reload SAM Model
+        print("Step 2: Estimation Pass. Reloading SAM 3D Body...")
+        model, model_cfg = load_sam_3d_body(
+            args.checkpoint_path, device=device, mhr_path=args.mhr_path
+        )
+        if args.model_input_size != 512:
+            model_cfg.defrost()
+            model_cfg.MODEL.IMAGE_SIZE = [args.model_input_size, args.model_input_size]
+            model_cfg.freeze()
+        
+        estimator = SAM3DBodyEstimator(
+            sam_3d_body_model=model,
+            model_cfg=model_cfg,
+            human_detector=None,
+            human_segmentor=None,
+            fov_estimator=None,
+        )
+        human_detector = None # Ensure it's None for the loop
+
     for video_path in video_paths:
         try:
+            precomputed = video_boxes_map.get(video_path)
             process_single_video(
-                video_path, output_dir, estimator, human_detector, args
+                video_path, output_dir, estimator, human_detector, args, precomputed_boxes=precomputed
             )
         except Exception as e:
             print(f"Error processing {video_path}: {e}")
@@ -412,6 +576,11 @@ if __name__ == "__main__":
         type=int,
         default=512,
         help="Input size for the SAM 3D Body model (default: 512). Reduce to 384 or 256 for speed.",
+    )
+    parser.add_argument(
+        "--low_memory",
+        action="store_true",
+        help="Enable low memory mode (sequential detection and estimation)",
     )
 
     args = parser.parse_args()

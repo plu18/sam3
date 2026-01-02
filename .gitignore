@@ -152,6 +152,11 @@ Thumbs.db
 *.bpe
 *.vocab
 *.mp4
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.trc
 my_experiments/data**
 my_experiments/out**
 
