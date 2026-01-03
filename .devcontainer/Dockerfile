@@ -61,9 +61,7 @@ RUN pip install -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
 # Install xtcocotools (requires cython and numpy, numpy is in requirements.txt)
 # Fixes: xtcocotools/_mask.c: No such file or directory
-RUN pip install cython && \
-    pip install git+https://github.com/jin-s13/xtcocoapi
-
+RUN pip install cython
 WORKDIR /workspace
 
 # Copy project files (optional, usually mounted via devcontainer.json)
